@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/mail"
 	"path"
+	"runtime"
 	"time"
 )
 
@@ -60,8 +61,8 @@ func (this *Account) refresh() error {
 	}
 	for _, inbox := range this.Inboxes {
 		c.Data = nil
-		c.Select(inbox.name, true)
-		log.Print("\nMailbox status:\n", c.Mailbox)
+		c.Select(inbox.Name, true)
+		inbox.log("\nMailbox status:\n", c.Mailbox)
 		uidv := c.Mailbox.UIDValidity
 
 		inbox.setUIDValidity(uidv)
@@ -69,12 +70,12 @@ func (this *Account) refresh() error {
 		last_uid := inbox.GetLastUid()
 		set, _ := imap.NewSeqSet("")
 		set.AddRange(last_uid+1, 0)
-		log.Printf("(uid fetch) waiting: %s", set.String())
+		inbox.log("(uid fetch) waiting: %s", set.String())
 		cmd, err = c.UIDFetch(set, "UID")
 		if err != nil {
 			return err
 		}
-		log.Println("DONE")
+		inbox.log("done UIDFetch")
 
 		uids := []uint32{}
 		for cmd.InProgress() {
@@ -85,52 +86,74 @@ func (this *Account) refresh() error {
 			cmd.Data = nil
 
 			for _, rsp = range c.Data {
-				log.Println("Server data:", rsp)
+				log.Printf("%s: Server data: %s", inbox.Name, rsp)
 			}
 			c.Data = nil
 		}
+		inbox.log("done cmd.InProgress, got %d ids", len(uids))
 		if len(uids) == 0 {
-			log.Print("no new uids")
 			return nil
 		}
+
+		per_request := 100
 		set, _ = imap.NewSeqSet("")
-		if len(uids) > 10 {
-			uids = uids[:10]
-		}
-		set.AddNum(uids...)
-		log.Printf("(header/body fetch) waiting: %s", set.String())
-		cmd, err = c.UIDFetch(set, "RFC822.HEADER", "RFC822.TEXT", "UID")
-		if err != nil {
-			return err
-		}
-		log.Println("DONE")
+	L:
+		for {
+			last := false
+			chunk := uids
+			if len(uids) < per_request {
+				last = true
+			} else {
+				chunk = uids[:per_request]
+				uids = uids[per_request+1:]
+			}
 
-		for cmd.InProgress() {
-			// Wait for the next response (no timeout)
-			c.Recv(-1)
+			set.Clear()
+			set.AddNum(chunk...)
+			inbox.log("(header/body fetch) waiting: %s left: %d, current: %d", set.String(), len(uids), len(chunk))
+			cmd, err = c.UIDFetch(set, "RFC822", "UID")
+			if err != nil {
+				return err
+			}
+			inbox.log("done UIDFetch")
+			que := []*Message{}
+			for cmd.InProgress() {
+				// Wait for the next response (no timeout)
+				c.Recv(-1)
 
-			for _, rsp = range cmd.Data {
-				info := rsp.MessageInfo()
-				header := imap.AsBytes(info.Attrs["RFC822.HEADER"])
-				if msg, _ := mail.ReadMessage(bytes.NewReader(header)); msg != nil {
-					msg.Body = bytes.NewReader(imap.AsBytes(info.Attrs["RFC822.TEXT"]))
-					uid := imap.AsNumber((rsp.MessageInfo().Attrs["UID"]))
-					m := &Message{
-						RAW:              msg,
-						UID:              uid,
-						UIDV:             uidv,
-						DidRead:          0,
-						InternalStampUTC: info.InternalDate.UTC().Unix(),
+				for _, rsp = range cmd.Data {
+					info := rsp.MessageInfo()
+					bmessage := imap.AsBytes(info.Attrs["RFC822"])
+
+					msg, err := mail.ReadMessage(bytes.NewReader(bmessage))
+					if err != nil {
+						inbox.log(err.Error())
+					} else {
+						uid := imap.AsNumber((rsp.MessageInfo().Attrs["UID"]))
+						m := &Message{
+							MSG:              msg,
+							RAW:              bmessage,
+							UID:              uid,
+							UIDV:             uidv,
+							DidRead:          0,
+							InternalStampUTC: info.InternalDate.UTC().Unix(),
+						}
+						que = append(que, m)
 					}
-					inbox.incoming <- m
 				}
-			}
-			cmd.Data = nil
+				cmd.Data = nil
 
-			for _, rsp = range c.Data {
-				log.Println("Server data:", rsp)
+				for _, rsp = range c.Data {
+					inbox.log("Server data: %s", rsp)
+				}
+				c.Data = nil
 			}
-			c.Data = nil
+			inbox.incoming <- que
+			if last {
+				break L
+			}
+			inbox.log("done cmd.InProgress")
+			runtime.GC()
 		}
 	}
 

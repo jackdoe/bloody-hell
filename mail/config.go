@@ -14,8 +14,12 @@ var GIANT = &sync.Mutex{}
 var ROOT string = GetRootDir()
 var ConfigPath string = path.Join(ROOT, "config.json")
 
+type Accounts struct {
+	List []*Account
+}
+
 type Config struct {
-	Accounts []*Account
+	Accounts Accounts
 }
 
 var config Config
@@ -50,7 +54,7 @@ func (this *Config) initialize() {
 	if err != nil {
 		panic(err)
 	}
-	for _, account := range config.Accounts {
+	for _, account := range config.Accounts.List {
 		for _, inbox := range account.StrInboxes {
 			account.Inboxes = append(account.Inboxes, NewInbox(account, inbox))
 		}
