@@ -95,7 +95,7 @@ func (this *Account) refresh() error {
 			return nil
 		}
 
-		per_request := 100
+		per_request := 250
 		set, _ = imap.NewSeqSet("")
 	L:
 		for {
@@ -105,11 +105,18 @@ func (this *Account) refresh() error {
 				last = true
 			} else {
 				chunk = uids[:per_request]
-				uids = uids[per_request+1:]
+				uids = uids[per_request:]
 			}
 
 			set.Clear()
-			set.AddNum(chunk...)
+			for _, u := range chunk {
+				// the last uid is returned if we ask for uid greather than it, so just ignore it
+				if u > last_uid {
+					set.AddNum(u)
+				} else {
+					inbox.log("ignoring %d, it is <= last_uid(%d)", u, last_uid)
+				}
+			}
 			inbox.log("(header/body fetch) waiting: %s left: %d, current: %d", set.String(), len(uids), len(chunk))
 			cmd, err = c.UIDFetch(set, "RFC822", "UID")
 			if err != nil {
@@ -148,7 +155,9 @@ func (this *Account) refresh() error {
 				}
 				c.Data = nil
 			}
-			inbox.incoming <- que
+			if len(que) > 0 {
+				inbox.incoming <- que
+			}
 			if last {
 				break L
 			}
