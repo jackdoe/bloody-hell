@@ -20,6 +20,7 @@ type Accounts struct {
 
 type Config struct {
 	Accounts Accounts
+	Logger   *log.Logger
 }
 
 var config Config
@@ -56,7 +57,6 @@ func (this *Config) initialize() {
 	}
 	for _, account := range config.Accounts.List {
 		for _, inbox := range account.StrInboxes {
-			log.Printf("adding inbox: %s - %s", account.Server, inbox)
 			account.Inboxes = append(account.Inboxes, NewInbox(account, inbox))
 		}
 	}
@@ -65,5 +65,5 @@ func (this *Config) initialize() {
 	if err != nil {
 		log.Fatalf("error opening file: %v", err)
 	}
-	log.SetOutput(f)
+	this.Logger = log.New(f, "bloody-hell", 0)
 }

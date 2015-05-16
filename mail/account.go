@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/mxk/go-imap/imap"
-	"log"
 	"net/mail"
 	"path"
 	"runtime"
@@ -29,80 +28,40 @@ func (this *Account) MaildirPath(inbox string) string {
 	return path.Join(ROOT, "Maildir", this.Label, inbox)
 }
 
-func (this *Account) refresh() error {
-	var (
-		c   *imap.Client
-		cmd *imap.Command
-		rsp *imap.Response
-	)
-
+func (this *Account) refresh() (int, error) {
+	total := 0
 	c, err := imap.DialTLS(this.Server, nil)
 	if err != nil {
-		return err
+		return total, err
 	}
 
+	c.SetLogger(config.Logger)
+	c.SetLogMask(imap.LogConn | imap.LogState | imap.LogCmd | imap.LogGo)
 	if c.State() == imap.Login {
 		_, err = c.Login(this.User, this.Password)
 		if err != nil {
-			return err
+			return total, err
 		}
 	} else {
-		return errors.New("should be in imap.Login state")
+		return total, errors.New("should be in imap.Login state")
 	}
+	c.Data = nil
 
-	cmd, err = imap.Wait(c.List("", "%"))
-	if err != nil {
-		return err
-	}
-
-	log.Println("\nTop-level mailboxes:")
-	for _, rsp = range cmd.Data {
-		log.Println("|--", rsp.MailboxInfo())
-	}
-
-	for _, rsp = range c.Data {
-		log.Println("Server data:", rsp)
-	}
 INBOX:
 	for _, inbox := range this.Inboxes {
 		inbox.log("fetching inbox")
-		c.Data = nil
-		c.Select(inbox.Name, true)
-		inbox.log("\nMailbox status:\n", c.Mailbox)
-		uidv := c.Mailbox.UIDValidity
 
-		inbox.setUIDValidity(uidv)
-
-		last_uid := inbox.GetLastUid()
-		set, _ := imap.NewSeqSet("")
-		set.AddRange(last_uid+1, 0)
-		inbox.log("(uid fetch) waiting: %s", set.String())
-		t0 := time.Now().Unix()
-		cmd, err = c.UIDFetch(set, "UID")
+		uidv, uids, last_uid, err := selectInboxAndFetchNewUIDS(c, inbox)
 		if err != nil {
-			inbox.log(err.Error())
-			continue INBOX
+			return total, err
 		}
-		uids := []uint32{}
-		for cmd.InProgress() {
-			c.Recv(-1)
-			for _, rsp = range cmd.Data {
-				uids = append(uids, imap.AsNumber((rsp.MessageInfo().Attrs["UID"])))
-			}
-			cmd.Data = nil
 
-			for _, rsp = range c.Data {
-				log.Printf("%s: Server data: %s", inbox.Name, rsp)
-			}
-			c.Data = nil
-		}
-		inbox.log("(uid fetch) done cmd.InProgress, got %d ids, took %d", len(uids), took(t0))
 		if len(uids) == 0 {
 			continue INBOX
 		}
 
 		per_request := 50
-		set, _ = imap.NewSeqSet("")
+		set, _ := imap.NewSeqSet("")
 	L:
 		for {
 			last := false
@@ -115,65 +74,50 @@ INBOX:
 			}
 
 			set.Clear()
-			t0 = time.Now().Unix()
 			for _, u := range chunk {
 				// the last uid is returned if we ask for uid greather than it, so just ignore it
 				if u > last_uid {
 					set.AddNum(u)
-				} else {
-					inbox.log("ignoring %d, it is <= last_uid(%d)", u, last_uid)
 				}
 			}
 			if set.Empty() {
-				inbox.log("nothing to fetch, breaking")
 				break L
 			}
 
+			t0 := time.Now().Unix()
 			inbox.log("(header+body fetch) waiting: %s left: %d, current: %d", set.String(), len(uids), len(chunk))
-			cmd, err = c.UIDFetch(set, "RFC822", "UID")
+
+			cmd, err := imap.Wait(c.UIDFetch(set, "RFC822", "UID"))
 			if err != nil {
-				inbox.log(err.Error())
-				continue INBOX
+				return total, err
 			}
+			if _, err := cmd.Result(imap.OK); err != nil {
+				return total, err
+			}
+
 			que := []*Message{}
-			for cmd.InProgress() {
-				// Wait for the next response (no timeout)
-				c.Recv(-1)
+			for _, rsp := range cmd.Data {
+				info := rsp.MessageInfo()
+				bmessage := imap.AsBytes(info.Attrs["RFC822"])
 
-				for _, rsp = range cmd.Data {
-					info := rsp.MessageInfo()
-					bmessage := imap.AsBytes(info.Attrs["RFC822"])
-
-					msg, err := mail.ReadMessage(bytes.NewReader(bmessage))
-					if err != nil {
-						inbox.log(err.Error())
-					} else {
-						uid := imap.AsNumber((rsp.MessageInfo().Attrs["UID"]))
-						m := &Message{
-							MSG:              msg,
-							RAW:              bmessage,
-							UID:              uid,
-							UIDV:             uidv,
-							DidRead:          0,
-							InternalStampUTC: info.InternalDate.UTC().Unix(),
-						}
-						que = append(que, m)
-					}
+				msg, err := mail.ReadMessage(bytes.NewReader(bmessage))
+				if err != nil {
+					return total, err
 				}
-				cmd.Data = nil
-
-				for _, rsp = range c.Data {
-					inbox.log("Server data: %s", rsp)
+				uid := imap.AsNumber((rsp.MessageInfo().Attrs["UID"]))
+				m := &Message{
+					MSG:              msg,
+					RAW:              bmessage,
+					UID:              uid,
+					UIDV:             uidv,
+					DidRead:          0,
+					InternalStampUTC: info.InternalDate.UTC().Unix(),
 				}
-				c.Data = nil
+				total++
+				que = append(que, m)
 			}
-			if rsp, err := cmd.Result(imap.OK); err != nil {
-				if err == imap.ErrAborted {
-					inbox.log("Fetch command aborted")
-				} else {
-					inbox.log("Fetch error: %s, set: %v, uids: %#v", rsp.Info, set.String(), chunk)
-				}
-			}
+			cmd.Data = nil
+			c.Data = nil
 
 			if len(que) > 0 {
 				inbox.incoming <- que
@@ -181,14 +125,49 @@ INBOX:
 			if last {
 				break L
 			}
+
 			inbox.log("(header+body fetch) done cmd.InProgress, took %d", took(t0))
 			runtime.GC()
-
 		}
-		inbox.log("fetching complete")
 	}
 
 	c.Logout(1 * time.Second)
 	c.Close(true)
-	return nil
+	return total, nil
+}
+
+func selectInboxAndFetchNewUIDS(c *imap.Client, inbox *Inbox) (uint32, []uint32, uint32, error) {
+	t0 := time.Now().Unix()
+	uidv := uint32(0)
+	uids := []uint32{}
+	last_uid := inbox.GetLastUid()
+	c.Data = nil
+	cmd, err := c.Select(inbox.Name, true)
+	if err != nil {
+		return uidv, uids, last_uid, err
+	}
+
+	uidv = c.Mailbox.UIDValidity
+
+	inbox.setUIDValidity(uidv)
+
+	set, _ := imap.NewSeqSet("")
+	set.AddRange(last_uid+1, 0)
+
+	cmd, err = imap.Wait(c.UIDFetch(set, "UID"))
+	if err != nil {
+		return uidv, uids, last_uid, err
+	}
+
+	if _, err := cmd.Result(imap.OK); err != nil {
+		return uidv, uids, last_uid, err
+	}
+
+	for _, rsp := range cmd.Data {
+		uids = append(uids, imap.AsNumber((rsp.MessageInfo().Attrs["UID"])))
+	}
+	cmd.Data = nil
+	c.Data = nil
+	inbox.log("(uid fetch) done cmd.InProgress, got %d ids, took %d", len(uids), took(t0))
+	return uidv, uids, last_uid, err
 }

@@ -147,7 +147,7 @@ func (this *Inbox) setUIDValidity(uidv uint32) {
 				for _, subdir := range TMP_CUR_NEW {
 					p := path.Join(this.Path, subdir, fn)
 					this.log("attempt to remove: %s", p)
-					//					os.Remove(p)
+					os.Remove(p)
 				}
 			}
 
@@ -190,11 +190,13 @@ func decode_header(input []byte, into interface{}) error {
 
 func (this *Inbox) log(format string, v ...interface{}) {
 	format = fmt.Sprintf("%s: %s", this.Name, format)
-	log.Printf(format, v...)
+	config.Logger.Printf(format, v...)
 }
+
 func (this *Inbox) panic(err error) {
 	this.panicf(err.Error())
 }
+
 func (this *Inbox) panicf(format string, v ...interface{}) {
 	format = fmt.Sprintf("%s: %s", this.Name, format)
 	log.Panicf(format, v...)
