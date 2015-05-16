@@ -56,6 +56,7 @@ func (this *Config) initialize() {
 	}
 	for _, account := range config.Accounts.List {
 		for _, inbox := range account.StrInboxes {
+			log.Printf("adding inbox: %s - %s", account.Server, inbox)
 			account.Inboxes = append(account.Inboxes, NewInbox(account, inbox))
 		}
 	}

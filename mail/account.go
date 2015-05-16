@@ -59,7 +59,9 @@ func (this *Account) refresh() error {
 	for _, rsp = range c.Data {
 		log.Println("Server data:", rsp)
 	}
+INBOX:
 	for _, inbox := range this.Inboxes {
+		inbox.log("fetching inbox")
 		c.Data = nil
 		c.Select(inbox.Name, true)
 		inbox.log("\nMailbox status:\n", c.Mailbox)
@@ -74,7 +76,8 @@ func (this *Account) refresh() error {
 		t0 := time.Now().Unix()
 		cmd, err = c.UIDFetch(set, "UID")
 		if err != nil {
-			return err
+			inbox.log(err.Error())
+			continue INBOX
 		}
 		uids := []uint32{}
 		for cmd.InProgress() {
@@ -91,7 +94,7 @@ func (this *Account) refresh() error {
 		}
 		inbox.log("(uid fetch) done cmd.InProgress, got %d ids, took %d", len(uids), took(t0))
 		if len(uids) == 0 {
-			return nil
+			continue INBOX
 		}
 
 		per_request := 50
@@ -120,7 +123,8 @@ func (this *Account) refresh() error {
 			inbox.log("(header+body fetch) waiting: %s left: %d, current: %d", set.String(), len(uids), len(chunk))
 			cmd, err = c.UIDFetch(set, "RFC822", "UID")
 			if err != nil {
-				return err
+				inbox.log(err.Error())
+				continue INBOX
 			}
 			que := []*Message{}
 			for cmd.InProgress() {
@@ -163,6 +167,7 @@ func (this *Account) refresh() error {
 			inbox.log("(header+body fetch) done cmd.InProgress, took %d", took(t0))
 			runtime.GC()
 		}
+		inbox.log("fetching complete")
 	}
 
 	if rsp, err := cmd.Result(imap.OK); err != nil {
