@@ -124,6 +124,11 @@ INBOX:
 					inbox.log("ignoring %d, it is <= last_uid(%d)", u, last_uid)
 				}
 			}
+			if set.Empty() {
+				inbox.log("nothing to fetch, breaking")
+				break L
+			}
+
 			inbox.log("(header+body fetch) waiting: %s left: %d, current: %d", set.String(), len(uids), len(chunk))
 			cmd, err = c.UIDFetch(set, "RFC822", "UID")
 			if err != nil {
@@ -162,6 +167,14 @@ INBOX:
 				}
 				c.Data = nil
 			}
+			if rsp, err := cmd.Result(imap.OK); err != nil {
+				if err == imap.ErrAborted {
+					inbox.log("Fetch command aborted")
+				} else {
+					inbox.log("Fetch error: %s, set: %v, uids: %#v", rsp.Info, set.String(), chunk)
+				}
+			}
+
 			if len(que) > 0 {
 				inbox.incoming <- que
 			}
@@ -170,17 +183,11 @@ INBOX:
 			}
 			inbox.log("(header+body fetch) done cmd.InProgress, took %d", took(t0))
 			runtime.GC()
+
 		}
 		inbox.log("fetching complete")
 	}
 
-	if rsp, err := cmd.Result(imap.OK); err != nil {
-		if err == imap.ErrAborted {
-			fmt.Println("Fetch command aborted")
-		} else {
-			fmt.Println("Fetch error:", rsp.Info)
-		}
-	}
 	c.Logout(1 * time.Second)
 	c.Close(true)
 	return nil
