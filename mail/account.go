@@ -25,6 +25,10 @@ func (this *Account) DatabasePath(inbox string) string {
 	return path.Join(ROOT, fmt.Sprintf("%s=%s=%s", this.Server, this.User, inbox))
 }
 
+func (this *Account) MaildirPath(inbox string) string {
+	return path.Join(ROOT, "Maildir", this.Label, inbox)
+}
+
 func (this *Account) refresh() error {
 	var (
 		c   *imap.Client
