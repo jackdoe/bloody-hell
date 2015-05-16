@@ -27,7 +27,13 @@ func (this *Account) DatabasePath(inbox string) string {
 func (this *Account) MaildirPath(inbox string) string {
 	return path.Join(ROOT, "Maildir", this.Label, inbox)
 }
-
+func (this *Account) count() int {
+	total := 0
+	for _, inbox := range this.Inboxes {
+		total += inbox.count()
+	}
+	return total
+}
 func (this *Account) refresh() (int, error) {
 	total := 0
 	c, err := imap.DialTLS(this.Server, nil)

@@ -32,13 +32,15 @@ func main() {
 
 func work() string {
 	t0 := time.Now().Unix()
-	total := 0
+	total_new := 0
+	total_after := 0
 	for _, account := range config.Accounts.List {
 		per_acc, err := account.refresh()
 		if err != nil {
 			log.Fatal(err)
 		}
-		total += per_acc
+		total_new += per_acc
+		total_after += account.count()
 	}
-	return fmt.Sprintf("account fetch done, took: %d seconds, for %d downloaded messages", took(t0), total)
+	return fmt.Sprintf("took: %d seconds, for %d downloaded messages, total messages: %d", took(t0), total_new, total_after)
 }
