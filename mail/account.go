@@ -36,7 +36,7 @@ func (this *Account) refresh() (int, error) {
 	}
 
 	c.SetLogger(config.Logger)
-	c.SetLogMask(imap.LogConn | imap.LogState | imap.LogCmd | imap.LogGo)
+	c.SetLogMask(imap.LogConn | imap.LogState | imap.LogGo)
 	if c.State() == imap.Login {
 		_, err = c.Login(this.User, this.Password)
 		if err != nil {
@@ -49,13 +49,13 @@ func (this *Account) refresh() (int, error) {
 
 INBOX:
 	for _, inbox := range this.Inboxes {
-		inbox.log("fetching inbox")
+		inbox.log("refresh started")
 
 		uidv, uids, last_uid, err := selectInboxAndFetchNewUIDS(c, inbox)
 		if err != nil {
 			return total, err
 		}
-
+		inbox.log("last uid: %d, current uidv: %d", last_uid, uidv)
 		if len(uids) == 0 {
 			continue INBOX
 		}
@@ -78,6 +78,8 @@ INBOX:
 				// the last uid is returned if we ask for uid greather than it, so just ignore it
 				if u > last_uid {
 					set.AddNum(u)
+				} else {
+					inbox.log("ignoring %d, it is <= last_uid(%d)", u, last_uid)
 				}
 			}
 			if set.Empty() {
