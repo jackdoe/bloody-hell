@@ -71,12 +71,11 @@ func (this *Account) refresh() error {
 		set, _ := imap.NewSeqSet("")
 		set.AddRange(last_uid+1, 0)
 		inbox.log("(uid fetch) waiting: %s", set.String())
+		t0 := time.Now().Unix()
 		cmd, err = c.UIDFetch(set, "UID")
 		if err != nil {
 			return err
 		}
-		inbox.log("done UIDFetch")
-
 		uids := []uint32{}
 		for cmd.InProgress() {
 			c.Recv(-1)
@@ -90,12 +89,12 @@ func (this *Account) refresh() error {
 			}
 			c.Data = nil
 		}
-		inbox.log("done cmd.InProgress, got %d ids", len(uids))
+		inbox.log("(uid fetch) done cmd.InProgress, got %d ids, took %d", len(uids), took(t0))
 		if len(uids) == 0 {
 			return nil
 		}
 
-		per_request := 250
+		per_request := 50
 		set, _ = imap.NewSeqSet("")
 	L:
 		for {
@@ -109,6 +108,7 @@ func (this *Account) refresh() error {
 			}
 
 			set.Clear()
+			t0 = time.Now().Unix()
 			for _, u := range chunk {
 				// the last uid is returned if we ask for uid greather than it, so just ignore it
 				if u > last_uid {
@@ -117,12 +117,11 @@ func (this *Account) refresh() error {
 					inbox.log("ignoring %d, it is <= last_uid(%d)", u, last_uid)
 				}
 			}
-			inbox.log("(header/body fetch) waiting: %s left: %d, current: %d", set.String(), len(uids), len(chunk))
+			inbox.log("(header+body fetch) waiting: %s left: %d, current: %d", set.String(), len(uids), len(chunk))
 			cmd, err = c.UIDFetch(set, "RFC822", "UID")
 			if err != nil {
 				return err
 			}
-			inbox.log("done UIDFetch")
 			que := []*Message{}
 			for cmd.InProgress() {
 				// Wait for the next response (no timeout)
@@ -161,7 +160,7 @@ func (this *Account) refresh() error {
 			if last {
 				break L
 			}
-			inbox.log("done cmd.InProgress")
+			inbox.log("(header+body fetch) done cmd.InProgress, took %d", took(t0))
 			runtime.GC()
 		}
 	}

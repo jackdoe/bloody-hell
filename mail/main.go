@@ -11,6 +11,10 @@ import (
 
 //go:generate genqrc qcode
 
+func took(t0 int64) int64 {
+	return time.Now().Unix() - t0
+}
+
 func main() {
 	// cfg := profile.Config{
 	// 	MemProfile:     true,
@@ -24,12 +28,15 @@ func main() {
 	log.Print("started")
 	go func() {
 		for {
+			t0 := time.Now().Unix()
 			for _, account := range config.Accounts.List {
 				err := account.refresh()
 				if err != nil {
 					log.Println(err)
 				}
 			}
+
+			log.Printf("account fetch done, took: %d seconds", took(t0))
 			time.Sleep(10 * time.Second)
 		}
 	}()
