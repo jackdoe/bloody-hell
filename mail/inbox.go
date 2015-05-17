@@ -10,7 +10,9 @@ import (
 	"log"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -138,6 +140,26 @@ func (this *Inbox) setUIDValidity(uidv uint32) {
 				this.panic(err)
 			}
 
+			// find the flagged messages, and link them to so we can remove them
+			mapping := map[string][]string{}
+			for _, subdir := range TMP_CUR_NEW {
+				files, err := filepath.Glob(path.Join(this.Path, subdir, "*:2,*"))
+				if err != nil {
+					this.panic(err)
+				}
+				for _, fpath := range files {
+					_, f := filepath.Split(fpath)
+					splitted := strings.Split(f, ":2,")
+					if len(splitted) == 2 {
+						s, present := mapping[splitted[0]]
+						if !present {
+							s = []string{}
+							mapping[splitted[0]] = s
+						}
+						mapping[splitted[0]] = append(s, fpath)
+					}
+				}
+			}
 			var fn string
 			for rows.Next() {
 				err := rows.Scan(&fn)
@@ -148,6 +170,13 @@ func (this *Inbox) setUIDValidity(uidv uint32) {
 					p := path.Join(this.Path, subdir, fn)
 					this.log("attempt to remove: %s", p)
 					os.Remove(p)
+					flagged, ok := mapping[fn]
+					if ok {
+						for _, pp := range flagged {
+							this.log("--> attempt to remove flagged: %s", pp)
+							os.Remove(pp)
+						}
+					}
 				}
 			}
 

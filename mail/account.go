@@ -148,7 +148,7 @@ func selectInboxAndFetchNewUIDS(c *imap.Client, inbox *Inbox) (uint32, []uint32,
 	t0 := time.Now().Unix()
 	uidv := uint32(0)
 	uids := []uint32{}
-	last_uid := inbox.GetLastUid()
+	last_uid := uint32(0)
 	c.Data = nil
 	cmd, err := c.Select(inbox.Name, true)
 	if err != nil {
@@ -156,8 +156,9 @@ func selectInboxAndFetchNewUIDS(c *imap.Client, inbox *Inbox) (uint32, []uint32,
 	}
 
 	uidv = c.Mailbox.UIDValidity
-
 	inbox.setUIDValidity(uidv)
+
+	last_uid = inbox.GetLastUid() // XXX: must be after setting UIDValidity, which is destructive
 
 	set, _ := imap.NewSeqSet("")
 	set.AddRange(last_uid+1, 0)
