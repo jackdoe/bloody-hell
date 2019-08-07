@@ -1,5 +1,6 @@
 
 
+cat << EOL | go run *.go
 {
    "Accounts" : {
       "List": [
@@ -15,7 +16,6 @@
       ]
    }
 }
-# vi ~/.bloody-hell/config.json
-# chmod 0600 ~/.bloody-hell/config.json
-# go run *.go
+EOL
+
 # tail -f ~/.bloody-hell/log.txt

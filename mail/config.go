@@ -12,7 +12,6 @@ import (
 
 var GIANT = &sync.Mutex{}
 var ROOT string = GetRootDir()
-var ConfigPath string = path.Join(ROOT, "config.json")
 
 type Accounts struct {
 	List []*Account
@@ -39,15 +38,7 @@ func (this *Config) initialize() {
 		panic(err)
 	}
 
-	fm, err := os.Stat(ConfigPath)
-	if err != nil {
-		panic(err)
-	}
-	if fm.Mode().Perm() != 0600 {
-		log.Fatalf("bad permission of %s, need 0600", ConfigPath)
-	}
-
-	file, err := ioutil.ReadFile(ConfigPath)
+	file, err := ioutil.ReadAll(os.Stdin)
 	if err != nil {
 		panic(err)
 	}
