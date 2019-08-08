@@ -56,5 +56,5 @@ func (this *Config) initialize() {
 	if err != nil {
 		log.Fatalf("error opening file: %v", err)
 	}
-	this.Logger = log.New(f, "bloody-hell: ", 0)
+	this.Logger = log.New(f, "bloody-hell: ", log.LstdFlags)
 }
