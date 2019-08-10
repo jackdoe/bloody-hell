@@ -33,9 +33,9 @@ func work() string {
 	t0 := time.Now().Unix()
 	total_new := int32(0)
 	total_after := int32(0)
-	wait := make(chan bool, len(config.Accounts.List))
+	wait := make(chan bool)
 	for _, account := range config.Accounts.List {
-		go func() {
+		go func(account *Account) {
 			per_acc, err := account.refresh()
 			if err != nil {
 				log.Fatal(err)
@@ -43,7 +43,7 @@ func work() string {
 			atomic.AddInt32(&total_new, int32(per_acc))
 			atomic.AddInt32(&total_after, int32(account.count()))
 			wait <- true
-		}()
+		}(account)
 	}
 	for range config.Accounts.List {
 		<-wait
